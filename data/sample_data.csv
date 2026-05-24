@@ -1,0 +1,26 @@
+text,label
+"I love this product, it works perfectly!",positive
+"This is absolutely amazing, highly recommend",positive
+"Great quality and fast delivery",positive
+"Wonderful experience, will buy again",positive
+"Excellent service and great value",positive
+"Very happy with my purchase",positive
+"Best product I have ever bought",positive
+"Outstanding quality, exceeded my expectations",positive
+"Fantastic, works exactly as described",positive
+"Really impressed with the performance",positive
+"This product is terrible, completely broken",negative
+"Awful experience, would not recommend",negative
+"Waste of money, very disappointed",negative
+"Horrible quality, fell apart after one day",negative
+"Terrible customer service, never again",negative
+"Very unhappy with this purchase",negative
+"Worst product I have ever used",negative
+"Absolutely dreadful, complete waste of time",negative
+"Does not work at all, very frustrating",negative
+"Disgusting quality, nothing like advertised",negative
+"It is okay, nothing special",neutral
+"Average product, does the job",neutral
+"Decent enough for the price",neutral
+"Works as expected, nothing more",neutral
+"Mediocre quality but acceptable",neutral
