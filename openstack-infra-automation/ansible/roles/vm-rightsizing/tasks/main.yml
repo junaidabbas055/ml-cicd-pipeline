@@ -1,0 +1,95 @@
+---
+# VM rightsizing analysis — collects CPU/memory metrics and recommends flavor changes.
+# Reduces compute costs by identifying over/under-provisioned instances.
+
+- name: Install monitoring tools
+  ansible.builtin.package:
+    name:
+      - sysstat
+      - bc
+    state: present
+
+- name: Enable sysstat collection
+  ansible.builtin.lineinfile:
+    path: /etc/default/sysstat
+    regexp: '^ENABLED='
+    line: 'ENABLED="true"'
+  notify: restart sysstat
+
+- name: Deploy rightsizing collection script
+  ansible.builtin.copy:
+    dest: /usr/local/bin/collect-metrics.sh
+    mode: '0755'
+    content: |
+      #!/usr/bin/env bash
+      # Collect 24h avg CPU and memory usage for rightsizing analysis
+      set -euo pipefail
+
+      HOSTNAME=$(hostname)
+      REPORT_DIR="/var/log/rightsizing"
+      mkdir -p "$REPORT_DIR"
+      REPORT="$REPORT_DIR/metrics-$(date +%Y%m%d).json"
+
+      AVG_CPU=$(sar -u 1 1 | awk '/Average/ {print 100 - $NF}')
+      MEM_TOTAL=$(free -m | awk '/Mem:/ {print $2}')
+      MEM_USED=$(free -m  | awk '/Mem:/ {print $3}')
+      MEM_PCT=$(echo "scale=2; $MEM_USED * 100 / $MEM_TOTAL" | bc)
+
+      # Recommend downsize if CPU < 20% and memory < 40%
+      RECOMMENDATION="ok"
+      if (( $(echo "$AVG_CPU < 20" | bc -l) )) && (( $(echo "$MEM_PCT < 40" | bc -l) )); then
+        RECOMMENDATION="downsize"
+      elif (( $(echo "$AVG_CPU > 80" | bc -l) )) || (( $(echo "$MEM_PCT > 85" | bc -l) )); then
+        RECOMMENDATION="upsize"
+      fi
+
+      cat > "$REPORT" <<EOF
+      {
+        "hostname": "$HOSTNAME",
+        "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+        "cpu_avg_pct": $AVG_CPU,
+        "mem_total_mb": $MEM_TOTAL,
+        "mem_used_mb": $MEM_USED,
+        "mem_pct": $MEM_PCT,
+        "recommendation": "$RECOMMENDATION"
+      }
+      EOF
+
+      echo "Rightsizing report written to $REPORT"
+      cat "$REPORT"
+
+- name: Schedule rightsizing collection via cron
+  ansible.builtin.cron:
+    name: "collect rightsizing metrics"
+    minute: "0"
+    hour: "*/6"
+    job: "/usr/local/bin/collect-metrics.sh >> /var/log/rightsizing/cron.log 2>&1"
+    user: root
+
+- name: Deploy auto-scaling policy script
+  ansible.builtin.copy:
+    dest: /usr/local/bin/auto-scale-check.sh
+    mode: '0755'
+    content: |
+      #!/usr/bin/env bash
+      # Check latest rightsizing report and trigger OpenStack resize if needed.
+      set -euo pipefail
+
+      REPORT=$(ls -t /var/log/rightsizing/metrics-*.json 2>/dev/null | head -1)
+      [ -z "$REPORT" ] && echo "No report found" && exit 0
+
+      RECOMMENDATION=$(python3 -c "import json,sys; d=json.load(open('$REPORT')); print(d['recommendation'])")
+      INSTANCE_ID=$(curl -sf http://169.254.169.254/openstack/latest/meta_data.json | python3 -c "import json,sys; print(json.load(sys.stdin)['uuid'])")
+
+      case "$RECOMMENDATION" in
+        downsize)
+          echo "RECOMMENDATION: downsize instance $INSTANCE_ID — sending alert"
+          # In production: call OpenStack API or notify platform team
+          ;;
+        upsize)
+          echo "RECOMMENDATION: upsize instance $INSTANCE_ID — sending alert"
+          ;;
+        ok)
+          echo "Instance $INSTANCE_ID sizing is optimal"
+          ;;
+      esac

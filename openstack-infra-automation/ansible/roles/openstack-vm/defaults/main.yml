@@ -1,0 +1,8 @@
+---
+ntp_servers:
+  - 0.pool.ntp.org
+  - 1.pool.ntp.org
+mount_data_volume: false
+data_device: /dev/vdb
+data_mount_point: /data
+elk_logstash_port: 5000

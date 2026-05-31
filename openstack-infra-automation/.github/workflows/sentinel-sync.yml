@@ -1,0 +1,33 @@
+name: Azure Sentinel Sync
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"   # Every 15 minutes
+  workflow_dispatch:
+
+jobs:
+  sync:
+    name: Sync OpenStack events to Azure Sentinel
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Sentinel Sync
+        shell: pwsh
+        env:
+          OS_AUTH_URL:              ${{ secrets.OS_AUTH_URL }}
+          OS_USERNAME:              ${{ secrets.OS_USERNAME }}
+          OS_PASSWORD:              ${{ secrets.OS_PASSWORD }}
+          OS_PROJECT_NAME:          ${{ secrets.OS_PROJECT_NAME }}
+          LOG_ANALYTICS_WORKSPACE:  ${{ secrets.LOG_ANALYTICS_WORKSPACE_ID }}
+          LOG_ANALYTICS_KEY:        ${{ secrets.LOG_ANALYTICS_KEY }}
+        run: |
+          ./scripts/sentinel-sync.ps1 `
+            -OpenStackAuthUrl       $env:OS_AUTH_URL `
+            -LogAnalyticsWorkspaceId $env:LOG_ANALYTICS_WORKSPACE `
+            -LogAnalyticsKey        $env:LOG_ANALYTICS_KEY `
+            -OpenStackUsername      $env:OS_USERNAME `
+            -OpenStackPassword      $env:OS_PASSWORD `
+            -OpenStackProject       $env:OS_PROJECT_NAME `
+            -LookbackMinutes        15

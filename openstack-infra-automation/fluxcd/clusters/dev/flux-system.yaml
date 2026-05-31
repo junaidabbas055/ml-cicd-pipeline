@@ -1,0 +1,41 @@
+---
+# FluxCD bootstrap configuration for dev cluster
+# Bootstrap: flux bootstrap github \
+#   --owner=junaidabbas055 \
+#   --repository=openstack-infra-automation \
+#   --branch=main \
+#   --path=fluxcd/clusters/dev \
+#   --personal
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: openstack-infra-automation
+  namespace: flux-system
+spec:
+  interval: 1m
+  ref:
+    branch: main
+  url: https://github.com/junaidabbas055/openstack-infra-automation
+  secretRef:
+    name: flux-system
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: apps
+  namespace: flux-system
+spec:
+  interval: 10m
+  retryInterval: 1m
+  timeout: 5m
+  sourceRef:
+    kind: GitRepository
+    name: openstack-infra-automation
+  path: ./fluxcd/apps/dev
+  prune: true
+  wait: true
+  healthChecks:
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: myapp
+      namespace: myapp-dev

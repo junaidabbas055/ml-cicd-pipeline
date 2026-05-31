@@ -1,0 +1,76 @@
+---
+# Post-provisioning configuration for OpenStack VMs
+
+- name: Set hostname
+  ansible.builtin.hostname:
+    name: "{{ inventory_hostname }}"
+
+- name: Configure /etc/hosts
+  ansible.builtin.template:
+    src: hosts.j2
+    dest: /etc/hosts
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Install base packages
+  ansible.builtin.package:
+    name:
+      - curl
+      - wget
+      - vim
+      - htop
+      - iotop
+      - net-tools
+      - tcpdump
+      - unzip
+      - python3-pip
+      - ntp
+      - rsyslog
+      - logrotate
+    state: present
+
+- name: Configure NTP
+  ansible.builtin.template:
+    src: ntp.conf.j2
+    dest: /etc/ntp.conf
+    mode: '0644'
+  notify: restart ntp
+
+- name: Enable and start NTP
+  ansible.builtin.service:
+    name: ntp
+    enabled: true
+    state: started
+
+- name: Configure rsyslog to forward to ELK
+  ansible.builtin.template:
+    src: rsyslog-elk.conf.j2
+    dest: /etc/rsyslog.d/50-elk.conf
+    mode: '0644'
+  notify: restart rsyslog
+  when: elk_logstash_host is defined
+
+- name: Configure logrotate
+  ansible.builtin.copy:
+    dest: /etc/logrotate.d/platform
+    content: |
+      /var/log/platform/*.log {
+          daily
+          rotate 14
+          compress
+          delaycompress
+          missingok
+          notifempty
+          sharedscripts
+      }
+    mode: '0644'
+
+- name: Mount data volume
+  ansible.builtin.mount:
+    path: "{{ data_mount_point | default('/data') }}"
+    src: "{{ data_device | default('/dev/vdb') }}"
+    fstype: ext4
+    opts: defaults,noatime
+    state: mounted
+  when: mount_data_volume | default(false)

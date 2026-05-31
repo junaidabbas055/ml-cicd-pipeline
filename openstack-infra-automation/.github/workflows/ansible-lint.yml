@@ -1,0 +1,55 @@
+name: Ansible Lint & Molecule Tests
+
+on:
+  push:
+    branches: [main, "feature/**"]
+    paths:
+      - "ansible/**"
+  pull_request:
+    paths:
+      - "ansible/**"
+
+jobs:
+  lint:
+    name: Ansible Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ansible-lint
+        run: pip install ansible-lint==24.2.0
+
+      - name: Run ansible-lint
+        run: ansible-lint ansible/
+
+  security-scan:
+    name: Trivy IaC Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trivy config scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: config
+          scan-ref: "."
+          severity: CRITICAL,HIGH
+          format: table
+          exit-code: "1"
+
+  sentinel-lint:
+    name: PowerShell PSScriptAnalyzer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Install-Module PSScriptAnalyzer -Force -Scope CurrentUser
+          Invoke-ScriptAnalyzer -Path scripts/sentinel-sync.ps1 -Severity Error

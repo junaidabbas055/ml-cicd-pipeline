@@ -1,0 +1,11 @@
+name: openstack-infra-automation
+runtime:
+  name: python
+  options:
+    virtualenv: venv
+description: OpenStack private cloud automation using Pulumi Python SDK
+config:
+  environment:
+    default: dev
+  keyPair:
+    description: OpenStack key pair name for SSH access
