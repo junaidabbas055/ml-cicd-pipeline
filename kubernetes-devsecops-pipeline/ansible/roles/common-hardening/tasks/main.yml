@@ -1,0 +1,151 @@
+---
+# CIS Level 2 hardening for RHEL/Ubuntu servers
+# Covers: patching, SSH hardening, kernel params, auditd, firewall, user accounts
+
+- name: Update all packages
+  ansible.builtin.package:
+    name: "*"
+    state: latest
+  tags: [patching]
+
+- name: Install required security packages
+  ansible.builtin.package:
+    name:
+      - auditd
+      - audispd-plugins
+      - aide
+      - fail2ban
+      - ufw
+      - libpam-pwquality
+      - rsyslog
+    state: present
+  tags: [packages]
+
+# ── SSH Hardening (CIS 5.2) ──────────────────────────────────────────────────
+- name: Configure SSH — harden sshd_config
+  ansible.builtin.template:
+    src: sshd_config.j2
+    dest: /etc/ssh/sshd_config
+    owner: root
+    group: root
+    mode: '0600'
+    validate: '/usr/sbin/sshd -t -f %s'
+  notify: restart sshd
+  tags: [ssh]
+
+# ── Kernel Parameters (CIS 3.x) ──────────────────────────────────────────────
+- name: Apply CIS kernel hardening parameters
+  ansible.posix.sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    sysctl_set: true
+    state: present
+    reload: true
+  loop:
+    - { key: net.ipv4.ip_forward,                  value: '0' }
+    - { key: net.ipv4.conf.all.send_redirects,      value: '0' }
+    - { key: net.ipv4.conf.default.send_redirects,  value: '0' }
+    - { key: net.ipv4.conf.all.accept_redirects,    value: '0' }
+    - { key: net.ipv4.conf.all.log_martians,        value: '1' }
+    - { key: net.ipv4.tcp_syncookies,               value: '1' }
+    - { key: net.ipv6.conf.all.disable_ipv6,        value: '1' }
+    - { key: kernel.randomize_va_space,             value: '2' }
+    - { key: fs.suid_dumpable,                      value: '0' }
+    - { key: kernel.dmesg_restrict,                 value: '1' }
+  tags: [kernel]
+
+# ── Auditd Rules (CIS 4.x) ───────────────────────────────────────────────────
+- name: Deploy auditd rules
+  ansible.builtin.template:
+    src: audit.rules.j2
+    dest: /etc/audit/rules.d/cis.rules
+    owner: root
+    group: root
+    mode: '0640'
+  notify: restart auditd
+  tags: [audit]
+
+- name: Enable and start auditd
+  ansible.builtin.service:
+    name: auditd
+    enabled: true
+    state: started
+  tags: [audit]
+
+# ── Firewall (UFW) ────────────────────────────────────────────────────────────
+- name: Set UFW default policies
+  community.general.ufw:
+    direction: "{{ item.direction }}"
+    policy: "{{ item.policy }}"
+  loop:
+    - { direction: incoming, policy: deny }
+    - { direction: outgoing, policy: allow }
+  tags: [firewall]
+
+- name: Allow SSH through UFW
+  community.general.ufw:
+    rule: allow
+    port: "{{ ssh_port | default('22') }}"
+    proto: tcp
+  tags: [firewall]
+
+- name: Enable UFW
+  community.general.ufw:
+    state: enabled
+  tags: [firewall]
+
+# ── Password Policy (CIS 5.4) ─────────────────────────────────────────────────
+- name: Configure PAM password quality
+  ansible.builtin.lineinfile:
+    path: /etc/security/pwquality.conf
+    regexp: "^{{ item.key }}"
+    line: "{{ item.key }} = {{ item.value }}"
+  loop:
+    - { key: minlen,   value: '14' }
+    - { key: dcredit,  value: '-1' }
+    - { key: ucredit,  value: '-1' }
+    - { key: ocredit,  value: '-1' }
+    - { key: lcredit,  value: '-1' }
+    - { key: minclass, value: '4' }
+  tags: [password]
+
+# ── Disable Unused Services ───────────────────────────────────────────────────
+- name: Disable unused services
+  ansible.builtin.service:
+    name: "{{ item }}"
+    enabled: false
+    state: stopped
+  ignore_errors: true
+  loop: "{{ disabled_services | default([]) }}"
+  tags: [services]
+
+# ── Fail2ban ──────────────────────────────────────────────────────────────────
+- name: Deploy fail2ban jail config
+  ansible.builtin.template:
+    src: jail.local.j2
+    dest: /etc/fail2ban/jail.local
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart fail2ban
+  tags: [fail2ban]
+
+- name: Enable and start fail2ban
+  ansible.builtin.service:
+    name: fail2ban
+    enabled: true
+    state: started
+  tags: [fail2ban]
+
+# ── AIDE Integrity Check ──────────────────────────────────────────────────────
+- name: Initialise AIDE database (first run)
+  ansible.builtin.command: aide --init
+  args:
+    creates: /var/lib/aide/aide.db.new
+  tags: [aide]
+
+- name: Move AIDE database into place
+  ansible.builtin.command: mv /var/lib/aide/aide.db.new /var/lib/aide/aide.db
+  args:
+    creates: /var/lib/aide/aide.db
+  tags: [aide]

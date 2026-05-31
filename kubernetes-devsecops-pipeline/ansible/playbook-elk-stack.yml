@@ -1,0 +1,9 @@
+---
+- name: Deploy ELK Stack for centralised logging
+  hosts: elk_servers
+  become: true
+  gather_facts: true
+
+  roles:
+    - role: common-hardening
+    - role: elk-stack

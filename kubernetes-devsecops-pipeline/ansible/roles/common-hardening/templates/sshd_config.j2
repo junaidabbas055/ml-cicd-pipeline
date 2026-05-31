@@ -1,0 +1,45 @@
+# Managed by Ansible — CIS Level 2 SSH hardening
+Port {{ ssh_port }}
+Protocol 2
+
+# Authentication
+PermitRootLogin {{ ssh_permit_root_login }}
+PasswordAuthentication {{ ssh_password_authentication }}
+PermitEmptyPasswords no
+ChallengeResponseAuthentication no
+UsePAM yes
+PubkeyAuthentication yes
+AuthorizedKeysFile .ssh/authorized_keys
+
+MaxAuthTries {{ ssh_max_auth_tries }}
+MaxSessions 4
+LoginGraceTime 60
+
+# Idle timeout
+ClientAliveInterval {{ ssh_client_alive_interval }}
+ClientAliveCountMax {{ ssh_client_alive_count_max }}
+
+# Restrict access
+{% if ssh_allowed_users %}
+AllowUsers {{ ssh_allowed_users | join(' ') }}
+{% endif %}
+DenyUsers root
+
+# Crypto hardening
+KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org,diffie-hellman-group14-sha256
+Ciphers aes256-gcm@openssh.com,aes128-gcm@openssh.com,aes256-ctr
+MACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com
+
+# Disable unsafe features
+X11Forwarding no
+AllowTcpForwarding no
+AllowAgentForwarding no
+PermitUserEnvironment no
+Compression no
+TCPKeepAlive no
+
+# Logging
+LogLevel VERBOSE
+SyslogFacility AUTH
+
+Banner /etc/issue.net

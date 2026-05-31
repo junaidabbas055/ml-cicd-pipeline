@@ -1,0 +1,6 @@
+---
+- name: Full platform provisioning (harden + docker + ELK)
+  import_playbook: playbook-hardening.yml
+
+- name: Deploy ELK stack
+  import_playbook: playbook-elk-stack.yml

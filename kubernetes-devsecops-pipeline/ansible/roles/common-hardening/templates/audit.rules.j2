@@ -1,0 +1,47 @@
+# Managed by Ansible — CIS Level 2 auditd rules
+
+# Remove all existing rules
+-D
+
+# Buffer size
+-b 8192
+
+# Failure mode: 1=printk, 2=panic
+-f 1
+
+# Audit login events (CIS 4.1.8)
+-w /var/log/lastlog -p wa -k logins
+-w /var/run/faillock -p wa -k logins
+
+# Audit sudo usage (CIS 4.1.9)
+-w /etc/sudoers -p wa -k scope
+-w /etc/sudoers.d -p wa -k scope
+-w /var/log/sudo.log -p wa -k actions
+
+# Audit user/group modifications (CIS 4.1.5)
+-w /etc/group  -p wa -k identity
+-w /etc/passwd -p wa -k identity
+-w /etc/shadow -p wa -k identity
+-w /etc/gshadow -p wa -k identity
+
+# Audit network config changes (CIS 4.1.6)
+-a always,exit -F arch=b64 -S sethostname -S setdomainname -k system-locale
+-w /etc/hosts -p wa -k system-locale
+-w /etc/sysconfig/network -p wa -k system-locale
+
+# Audit privileged commands (CIS 4.1.11)
+-a always,exit -F path=/usr/bin/passwd -F perm=x -F auid>=1000 -F auid!=unset -k privileged
+-a always,exit -F path=/usr/bin/sudo   -F perm=x -F auid>=1000 -F auid!=unset -k privileged
+-a always,exit -F path=/usr/bin/su     -F perm=x -F auid>=1000 -F auid!=unset -k privileged
+
+# Audit file deletions (CIS 4.1.13)
+-a always,exit -F arch=b64 -S unlink -S unlinkat -S rename -S renameat -F auid>=1000 -F auid!=unset -k delete
+
+# Audit kernel module loading (CIS 4.1.16)
+-w /sbin/insmod  -p x -k modules
+-w /sbin/rmmod   -p x -k modules
+-w /sbin/modprobe -p x -k modules
+-a always,exit -F arch=b64 -S init_module -S delete_module -k modules
+
+# Make config immutable (must reboot to change audit rules)
+-e 2

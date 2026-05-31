@@ -1,0 +1,18 @@
+---
+elk_base_dir: /opt/elk
+elk_version: "8.13.0"
+
+elasticsearch_port: 9200
+elasticsearch_user: elastic
+elasticsearch_password: "changeme"
+elasticsearch_heap_size: "1g"
+
+logstash_port: 5044
+logstash_heap_size: "512m"
+
+kibana_port: 5601
+
+kibana_index_patterns:
+  - "app-logs-*"
+  - "system-logs-*"
+  - "jenkins-*"

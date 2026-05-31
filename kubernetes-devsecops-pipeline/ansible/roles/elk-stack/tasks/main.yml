@@ -1,0 +1,95 @@
+---
+# Deploy ELK Stack (Elasticsearch + Logstash + Kibana) via Docker Compose
+
+- name: Install Docker and Docker Compose
+  ansible.builtin.include_role:
+    name: docker-setup
+
+- name: Create ELK directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0755'
+  loop:
+    - "{{ elk_base_dir }}"
+    - "{{ elk_base_dir }}/elasticsearch/data"
+    - "{{ elk_base_dir }}/logstash/pipeline"
+    - "{{ elk_base_dir }}/logstash/config"
+    - "{{ elk_base_dir }}/kibana"
+    - "{{ elk_base_dir }}/certs"
+
+- name: Set vm.max_map_count for Elasticsearch
+  ansible.posix.sysctl:
+    name: vm.max_map_count
+    value: '262144'
+    sysctl_set: true
+    state: present
+    reload: true
+
+- name: Deploy Docker Compose file
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ elk_base_dir }}/docker-compose.yml"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0644'
+
+- name: Deploy Logstash pipeline config
+  ansible.builtin.template:
+    src: logstash-pipeline.conf.j2
+    dest: "{{ elk_base_dir }}/logstash/pipeline/main.conf"
+    mode: '0644'
+  notify: restart elk
+
+- name: Deploy Kibana config
+  ansible.builtin.template:
+    src: kibana.yml.j2
+    dest: "{{ elk_base_dir }}/kibana/kibana.yml"
+    mode: '0644'
+  notify: restart elk
+
+- name: Start ELK stack
+  community.docker.docker_compose_v2:
+    project_src: "{{ elk_base_dir }}"
+    state: present
+    pull: always
+
+- name: Wait for Elasticsearch to be healthy
+  ansible.builtin.uri:
+    url: "http://localhost:{{ elasticsearch_port }}/_cluster/health"
+    method: GET
+    user: "{{ elasticsearch_user }}"
+    password: "{{ elasticsearch_password }}"
+    force_basic_auth: true
+    status_code: 200
+    return_content: true
+  register: es_health
+  until: es_health.json.status in ['green', 'yellow']
+  retries: 30
+  delay: 10
+
+- name: Wait for Kibana to be ready
+  ansible.builtin.uri:
+    url: "http://localhost:{{ kibana_port }}/api/status"
+    status_code: 200
+  retries: 20
+  delay: 10
+
+- name: Import Kibana index patterns
+  ansible.builtin.uri:
+    url: "http://localhost:{{ kibana_port }}/api/saved_objects/index-pattern"
+    method: POST
+    user: "{{ elasticsearch_user }}"
+    password: "{{ elasticsearch_password }}"
+    force_basic_auth: true
+    body_format: json
+    headers:
+      kbn-xsrf: "true"
+    body:
+      attributes:
+        title: "{{ item }}"
+        timeFieldName: "@timestamp"
+    status_code: [200, 409]
+  loop: "{{ kibana_index_patterns }}"

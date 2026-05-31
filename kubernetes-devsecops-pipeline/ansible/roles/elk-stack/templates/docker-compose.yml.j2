@@ -1,0 +1,100 @@
+# Managed by Ansible
+version: "3.8"
+
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:{{ elk_version }}
+    container_name: elasticsearch
+    environment:
+      - node.name=elasticsearch
+      - cluster.name=platform-logs
+      - discovery.type=single-node
+      - ELASTIC_PASSWORD={{ elasticsearch_password }}
+      - xpack.security.enabled=true
+      - xpack.security.http.ssl.enabled=false
+      - ES_JAVA_OPTS=-Xms{{ elasticsearch_heap_size }} -Xmx{{ elasticsearch_heap_size }}
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - {{ elk_base_dir }}/elasticsearch/data:/usr/share/elasticsearch/data
+    ports:
+      - "{{ elasticsearch_port }}:9200"
+    networks:
+      - elk
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf -u {{ elasticsearch_user }}:{{ elasticsearch_password }} http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:{{ elk_version }}
+    container_name: logstash
+    environment:
+      - ELASTIC_PASSWORD={{ elasticsearch_password }}
+      - LS_JAVA_OPTS=-Xms{{ logstash_heap_size }} -Xmx{{ logstash_heap_size }}
+    volumes:
+      - {{ elk_base_dir }}/logstash/pipeline:/usr/share/logstash/pipeline:ro
+      - {{ elk_base_dir }}/logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml:ro
+    ports:
+      - "{{ logstash_port }}:5044"
+      - "5000:5000/tcp"
+      - "5000:5000/udp"
+      - "9600:9600"
+    networks:
+      - elk
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    restart: unless-stopped
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:{{ elk_version }}
+    container_name: kibana
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - ELASTICSEARCH_USERNAME={{ elasticsearch_user }}
+      - ELASTICSEARCH_PASSWORD={{ elasticsearch_password }}
+    volumes:
+      - {{ elk_base_dir }}/kibana/kibana.yml:/usr/share/kibana/config/kibana.yml:ro
+    ports:
+      - "{{ kibana_port }}:5601"
+    networks:
+      - elk
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:5601/api/status || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:{{ elk_version }}
+    container_name: filebeat
+    user: root
+    command: filebeat -e -strict.perms=false
+    volumes:
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - ELASTICSEARCH_HOST=elasticsearch
+      - ELASTICSEARCH_PORT={{ elasticsearch_port }}
+      - ELASTICSEARCH_USER={{ elasticsearch_user }}
+      - ELASTICSEARCH_PASSWORD={{ elasticsearch_password }}
+    networks:
+      - elk
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    restart: unless-stopped
+
+networks:
+  elk:
+    driver: bridge

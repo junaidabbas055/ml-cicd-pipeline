@@ -1,0 +1,224 @@
+/**
+ * DevSecOps CI/CD Pipeline
+ * Stages: Checkout → Build → SAST → Container Scan → Push → Deploy → Smoke Test
+ */
+pipeline {
+    agent {
+        kubernetes {
+            yaml '''
+                apiVersion: v1
+                kind: Pod
+                spec:
+                  containers:
+                  - name: docker
+                    image: docker:24-dind
+                    securityContext:
+                      privileged: true
+                    volumeMounts:
+                    - name: docker-sock
+                      mountPath: /var/run/docker.sock
+                  - name: kubectl
+                    image: bitnami/kubectl:1.29
+                    command: [sleep, infinity]
+                  - name: trivy
+                    image: aquasec/trivy:0.50.1
+                    command: [sleep, infinity]
+                  volumes:
+                  - name: docker-sock
+                    hostPath:
+                      path: /var/run/docker.sock
+            '''
+        }
+    }
+
+    environment {
+        APP_NAME        = 'myapp'
+        IMAGE_REPO      = "${env.ACR_REGISTRY}/${APP_NAME}"
+        IMAGE_TAG       = "${env.BUILD_NUMBER}-${env.GIT_COMMIT[0..7]}"
+        FULL_IMAGE      = "${IMAGE_REPO}:${IMAGE_TAG}"
+        TRIVY_SEVERITY  = 'CRITICAL,HIGH'
+        DEPLOY_TIMEOUT  = '300'
+    }
+
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '20'))
+        timeout(time: 45, unit: 'MINUTES')
+        disableConcurrentBuilds()
+        timestamps()
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+                script {
+                    env.GIT_COMMIT_MSG = sh(script: 'git log -1 --pretty=%B', returnStdout: true).trim()
+                    env.GIT_AUTHOR    = sh(script: 'git log -1 --pretty=%an', returnStdout: true).trim()
+                }
+                echo "Building commit by ${env.GIT_AUTHOR}: ${env.GIT_COMMIT_MSG}"
+            }
+        }
+
+        stage('Build Image') {
+            steps {
+                container('docker') {
+                    sh """
+                        docker build \
+                            --build-arg BUILD_DATE=\$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+                            --build-arg VCS_REF=${env.GIT_COMMIT} \
+                            --build-arg VERSION=${IMAGE_TAG} \
+                            --label org.opencontainers.image.created=\$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+                            --label org.opencontainers.image.revision=${env.GIT_COMMIT} \
+                            --label org.opencontainers.image.version=${IMAGE_TAG} \
+                            -t ${FULL_IMAGE} \
+                            -f docker/app/Dockerfile .
+                    """
+                }
+            }
+        }
+
+        stage('SAST — Trivy FS Scan') {
+            steps {
+                container('trivy') {
+                    sh """
+                        trivy fs \
+                            --exit-code 0 \
+                            --severity ${TRIVY_SEVERITY} \
+                            --format sarif \
+                            --output trivy-fs-report.sarif \
+                            .
+                    """
+                }
+                archiveArtifacts artifacts: 'trivy-fs-report.sarif', allowEmptyArchive: true
+            }
+        }
+
+        stage('Container Scan — Trivy Image') {
+            steps {
+                container('trivy') {
+                    sh """
+                        trivy image \
+                            --exit-code 1 \
+                            --ignore-unfixed \
+                            --severity ${TRIVY_SEVERITY} \
+                            --format table \
+                            ${FULL_IMAGE}
+                    """
+                }
+            }
+        }
+
+        stage('Push to Registry') {
+            when {
+                anyOf {
+                    branch 'main'
+                    branch 'release/*'
+                }
+            }
+            steps {
+                container('docker') {
+                    withCredentials([usernamePassword(
+                        credentialsId: 'acr-credentials',
+                        usernameVariable: 'ACR_USER',
+                        passwordVariable: 'ACR_PASS'
+                    )]) {
+                        sh """
+                            echo \$ACR_PASS | docker login ${env.ACR_REGISTRY} -u \$ACR_USER --password-stdin
+                            docker push ${FULL_IMAGE}
+                            docker tag ${FULL_IMAGE} ${IMAGE_REPO}:latest
+                            docker push ${IMAGE_REPO}:latest
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('Deploy to Dev') {
+            when { branch 'main' }
+            steps {
+                container('kubectl') {
+                    withKubeConfig([credentialsId: 'kubeconfig-dev']) {
+                        sh """
+                            kubectl set image deployment/${APP_NAME} \
+                                ${APP_NAME}=${FULL_IMAGE} \
+                                -n ${APP_NAME}-dev
+                            kubectl rollout status deployment/${APP_NAME} \
+                                -n ${APP_NAME}-dev \
+                                --timeout=${DEPLOY_TIMEOUT}s
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('Smoke Test') {
+            when { branch 'main' }
+            steps {
+                container('kubectl') {
+                    withKubeConfig([credentialsId: 'kubeconfig-dev']) {
+                        sh """
+                            kubectl wait --for=condition=available \
+                                deployment/${APP_NAME} \
+                                -n ${APP_NAME}-dev \
+                                --timeout=${DEPLOY_TIMEOUT}s
+
+                            # Hit health endpoint via in-cluster service
+                            kubectl run smoke-test-\${BUILD_NUMBER} \
+                                --image=curlimages/curl:8.6.0 \
+                                --restart=Never \
+                                --rm \
+                                -it \
+                                -n ${APP_NAME}-dev \
+                                -- curl -sf http://${APP_NAME}/health
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('Deploy to Prod') {
+            when { branch 'release/*' }
+            input {
+                message 'Deploy to production?'
+                ok 'Approve'
+                submitter 'platform-team'
+            }
+            steps {
+                container('kubectl') {
+                    withKubeConfig([credentialsId: 'kubeconfig-prod']) {
+                        sh """
+                            kubectl set image deployment/${APP_NAME} \
+                                ${APP_NAME}=${FULL_IMAGE} \
+                                -n ${APP_NAME}-prod
+                            kubectl rollout status deployment/${APP_NAME} \
+                                -n ${APP_NAME}-prod \
+                                --timeout=${DEPLOY_TIMEOUT}s
+                        """
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            slackSend(
+                channel: '#deployments',
+                color: 'good',
+                message: "DEPLOYED: ${APP_NAME} ${IMAGE_TAG} to ${env.BRANCH_NAME} by ${env.GIT_AUTHOR}"
+            )
+        }
+        failure {
+            slackSend(
+                channel: '#deployments',
+                color: 'danger',
+                message: "FAILED: ${APP_NAME} pipeline on ${env.BRANCH_NAME} — ${env.GIT_COMMIT_MSG}"
+            )
+            sh 'docker rmi ${FULL_IMAGE} || true'
+        }
+        always {
+            archiveArtifacts artifacts: '**/*.sarif', allowEmptyArchive: true
+            cleanWs()
+        }
+    }
+}

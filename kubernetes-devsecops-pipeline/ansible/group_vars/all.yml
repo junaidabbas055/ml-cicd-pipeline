@@ -1,0 +1,14 @@
+---
+# Common variables for all hosts
+ntp_servers:
+  - 0.pool.ntp.org
+  - 1.pool.ntp.org
+
+timezone: Europe/Berlin
+
+ssh_port: 22
+ssh_allowed_users:
+  - azureuser
+  - deploy
+
+log_retention_days: 90

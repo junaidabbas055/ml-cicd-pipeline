@@ -1,0 +1,74 @@
+# Managed by Ansible — Logstash main pipeline
+input {
+  beats {
+    port => 5044
+  }
+  tcp {
+    port => 5000
+    codec => json_lines
+    tags => ["tcp-json"]
+  }
+  udp {
+    port => 5000
+    codec => json_lines
+    tags => ["udp-syslog"]
+  }
+}
+
+filter {
+  # Parse Docker container logs
+  if [container][name] {
+    mutate {
+      add_field => { "log_source" => "docker" }
+    }
+  }
+
+  # Parse JSON application logs
+  if [message] =~ /^\{/ {
+    json {
+      source => "message"
+      target => "parsed"
+    }
+    if "_jsonparsefailure" not in [tags] {
+      mutate {
+        rename => { "[parsed][level]"   => "log_level" }
+        rename => { "[parsed][service]" => "service"   }
+        rename => { "[parsed][traceId]" => "trace_id"  }
+      }
+    }
+  }
+
+  # Normalise log level
+  if [log_level] {
+    mutate {
+      uppercase => ["log_level"]
+    }
+  }
+
+  # GeoIP enrichment for external IPs
+  if [client_ip] and [client_ip] !~ /^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)/ {
+    geoip {
+      source => "client_ip"
+      target => "geoip"
+    }
+  }
+
+  # Drop health check noise
+  if [request] =~ "/health" or [request] =~ "/ready" {
+    drop {}
+  }
+
+  mutate {
+    remove_field => ["agent", "ecs", "input"]
+  }
+}
+
+output {
+  elasticsearch {
+    hosts    => ["elasticsearch:{{ elasticsearch_port }}"]
+    user     => "{{ elasticsearch_user }}"
+    password => "{{ elasticsearch_password }}"
+    index    => "%{[log_source]:app}-logs-%{+YYYY.MM.dd}"
+    action   => "index"
+  }
+}

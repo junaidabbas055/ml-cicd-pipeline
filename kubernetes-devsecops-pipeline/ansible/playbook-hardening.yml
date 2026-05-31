@@ -1,0 +1,20 @@
+---
+- name: CIS Level 2 server hardening
+  hosts: all
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Assert supported OS
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in ['Debian', 'RedHat']
+        fail_msg: "Unsupported OS family: {{ ansible_os_family }}"
+
+  roles:
+    - role: common-hardening
+
+  post_tasks:
+    - name: Print hardening summary
+      ansible.builtin.debug:
+        msg: "CIS L2 hardening complete on {{ inventory_hostname }} ({{ ansible_distribution }} {{ ansible_distribution_version }})"

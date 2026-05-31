@@ -1,0 +1,9 @@
+# Managed by Ansible
+server.host: "0.0.0.0"
+server.name: "platform-kibana"
+elasticsearch.hosts: ["http://elasticsearch:9200"]
+elasticsearch.username: "{{ elasticsearch_user }}"
+elasticsearch.password: "{{ elasticsearch_password }}"
+monitoring.ui.container.elasticsearch.enabled: true
+xpack.security.enabled: true
+xpack.encryptedSavedObjects.encryptionKey: "{{ kibana_encryption_key | default('changeme-32-char-encryption-key!!') }}"

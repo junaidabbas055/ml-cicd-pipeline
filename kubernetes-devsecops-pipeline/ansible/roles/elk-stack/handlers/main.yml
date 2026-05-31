@@ -1,0 +1,5 @@
+---
+- name: restart elk
+  community.docker.docker_compose_v2:
+    project_src: "{{ elk_base_dir }}"
+    state: restarted
