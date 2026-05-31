@@ -1,0 +1,12 @@
+apiVersion: v2
+name: app-template
+description: Golden-path Helm chart for containerised microservices on AKS
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - microservice
+  - aks
+  - gitops
+maintainers:
+  - name: Platform Team

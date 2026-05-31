@@ -1,0 +1,58 @@
+# ArgoCD installation with HA configuration for production AKS
+# Apply with: kubectl apply -n argocd -f argocd-install.yaml
+#
+# Prerequisites:
+#   kubectl create namespace argocd
+#   kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+#
+# Then patch the argocd-server service for AKS LoadBalancer:
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-cm
+  namespace: argocd
+data:
+  # Enable OIDC integration with Azure AD
+  url: https://argocd.example.com
+  oidc.config: |
+    name: Azure AD
+    issuer: https://login.microsoftonline.com/<TENANT_ID>/v2.0
+    clientID: <CLIENT_ID>
+    clientSecret: $oidc.azure.clientSecret
+    requestedScopes:
+      - openid
+      - profile
+      - email
+  # Repositories
+  repositories: |
+    - url: https://github.com/junaidabbas055/azure-aks-gitops-platform
+      type: git
+  resource.customizations.health.argoproj.io_Application: |
+    hs = {}
+    hs.status = "Progressing"
+    hs.message = ""
+    if obj.status ~= nil then
+      if obj.status.health ~= nil then
+        hs.status = obj.status.health.status
+        if obj.status.health.message ~= nil then
+          hs.message = obj.status.health.message
+        end
+      end
+    end
+    return hs
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-rbac-cm
+  namespace: argocd
+data:
+  policy.default: role:readonly
+  policy.csv: |
+    p, role:platform-admin, applications, *, */*, allow
+    p, role:platform-admin, clusters, get, *, allow
+    p, role:platform-admin, repositories, *, *, allow
+    p, role:platform-admin, projects, *, *, allow
+    g, platform-admins, role:platform-admin
+    g, dev-team, role:readonly
