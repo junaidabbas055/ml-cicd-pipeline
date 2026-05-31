@@ -1,10 +1,7 @@
 name: Terraform Apply
 
+# Only runs on manual trigger — requires real Azure credentials (AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID)
 on:
-  push:
-    branches: [main]
-    paths:
-      - "terraform/**"
   workflow_dispatch:
     inputs:
       environment:
@@ -19,18 +16,18 @@ permissions:
   id-token: write
 
 env:
-  ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-  ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-  ARM_USE_OIDC: "true"
-  TF_VERSION: "1.7.4"
+  ARM_CLIENT_ID:        ${{ secrets.AZURE_CLIENT_ID }}
+  ARM_SUBSCRIPTION_ID:  ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  ARM_TENANT_ID:        ${{ secrets.AZURE_TENANT_ID }}
+  ARM_USE_OIDC:         "true"
+  TF_VERSION:           "1.7.4"
 
 jobs:
   apply-dev:
     name: Apply (dev)
     runs-on: ubuntu-latest
     environment: dev
-    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'dev')
+    if: github.event.inputs.environment == 'dev'
     defaults:
       run:
         working-directory: terraform/environments/dev
@@ -45,8 +42,8 @@ jobs:
       - name: Azure Login (OIDC)
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          client-id:       ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id:       ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - run: terraform init -input=false
@@ -55,9 +52,8 @@ jobs:
   apply-prod:
     name: Apply (prod)
     runs-on: ubuntu-latest
-    environment: prod   # Requires manual approval in GitHub Environments
-    needs: apply-dev
-    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'prod')
+    environment: prod
+    if: github.event.inputs.environment == 'prod'
     defaults:
       run:
         working-directory: terraform/environments/prod
@@ -72,8 +68,8 @@ jobs:
       - name: Azure Login (OIDC)
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          client-id:       ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id:       ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - run: terraform init -input=false

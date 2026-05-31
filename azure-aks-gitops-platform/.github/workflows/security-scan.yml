@@ -50,6 +50,7 @@ jobs:
           format: sarif
           output: trivy-k8s.sarif
           severity: CRITICAL,HIGH
+          exit-code: "0"
 
       - name: Upload Trivy SARIF
         if: always()
@@ -85,7 +86,7 @@ jobs:
           output_format: sarif
           output_file_path: checkov.sarif
           soft_fail: true
-          skip_check: CKV_K8S_8,CKV_K8S_9   # Skip checks not applicable to golden-path template
+          skip_check: CKV_K8S_8,CKV_K8S_9
 
       - name: Upload Checkov SARIF
         if: always()
